@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+previews:
+  generation: off
+
+services:
+  - type: web
+    name: opencode
+    runtime: docker
+    region: oregon
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    disk:
+      name: opencode-data
+      mountPath: /root/project-data
+      sizeGB: 1
+    envVars:
+      - key: OPENCODE_SERVER_PASSWORD
+        generateValue: true
+      - key: OPENCODE_SERVER_USERNAME
+        value: opencode
+      - key: OPENCODE_SERVER_COMMAND
+        value: web
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: REPO_URL
+        sync: false
+      - key: REPO_BRANCH
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
