@@ -7,16 +7,12 @@ mkdir -p "$PLUGIN_DIR"
 
 # Load the proxy from its prebuilt, self-contained bundle as a local plugin.
 # OpenCode resolves npm-named plugins with Bun, which this image does not ship.
-NPM_ROOT="$(npm root -g)"
-BUNDLE="$NPM_ROOT/opencode-llm-proxy/dist/llm-proxy.js"
-echo "[start] config_dir=$CONFIG_DIR bundle=$BUNDLE"
+BUNDLE="$(npm root -g)/opencode-llm-proxy/dist/llm-proxy.js"
 if [ ! -f "$BUNDLE" ]; then
   echo "[start] proxy bundle not found at $BUNDLE" >&2
   exit 1
 fi
 cp "$BUNDLE" "$PLUGIN_DIR/llm-proxy.js"
-ls -la "$PLUGIN_DIR"
-
 printf '%s\n' '{ "$schema": "https://opencode.ai/config.json" }' > "$CONFIG_DIR/opencode.json"
 
 if [ -z "${OPENCODE_LLM_PROXY_TOKEN:-}" ]; then
@@ -27,31 +23,23 @@ fi
 export OPENCODE_LLM_PROXY_HOST="${OPENCODE_LLM_PROXY_HOST:-0.0.0.0}"
 export OPENCODE_LLM_PROXY_PORT="${PORT:-4010}"
 SERVER_PORT="${OPENCODE_SERVER_PORT:-4096}"
-echo "[start] proxy_port=$OPENCODE_LLM_PROXY_PORT server_port=$SERVER_PORT host=$OPENCODE_LLM_PROXY_HOST"
+echo "[start] proxy=${OPENCODE_LLM_PROXY_HOST}:${OPENCODE_LLM_PROXY_PORT} server=127.0.0.1:${SERVER_PORT}"
+
+opencode serve --hostname 127.0.0.1 --port "$SERVER_PORT" &
+SERVER_PID=$!
+trap 'kill "$SERVER_PID" 2>/dev/null' TERM INT
 
 # OpenCode loads plugins lazily, on the first session. Create one so the proxy
 # binds $PORT before Render's port scan gives up and fails the deploy.
-(
-  for i in $(seq 1 150); do
-    if curl -fsS "http://127.0.0.1:${SERVER_PORT}/global/health" >/dev/null 2>&1; then
-      echo "[warmup] server healthy after ${i}s"
-      code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-        "http://127.0.0.1:${SERVER_PORT}/session" \
-        -H 'Content-Type: application/json' -d '{}' || true)
-      echo "[warmup] session POST -> ${code}"
-      break
-    fi
-    sleep 1
-  done
-  for i in $(seq 1 60); do
-    if curl -s -o /dev/null "http://127.0.0.1:${OPENCODE_LLM_PROXY_PORT}/v1/models" \
-        -H "Authorization: Bearer ${OPENCODE_LLM_PROXY_TOKEN}"; then
-      echo "[warmup] proxy reachable after ${i}s"
-      exit 0
-    fi
-    sleep 1
-  done
-  echo "[warmup] proxy never came up"
-) &
+for i in $(seq 1 60); do
+  if curl -fsS "http://127.0.0.1:${SERVER_PORT}/global/health" >/dev/null 2>&1; then
+    echo "[warmup] server healthy after ${i}s"
+    break
+  fi
+  sleep 1
+done
+curl -s -o /dev/null -w '[warmup] session POST -> %{http_code}\n' \
+  -X POST "http://127.0.0.1:${SERVER_PORT}/session" \
+  -H 'Content-Type: application/json' -d '{}' || true
 
-exec opencode serve --hostname 127.0.0.1 --port "$SERVER_PORT"
+wait "$SERVER_PID"
