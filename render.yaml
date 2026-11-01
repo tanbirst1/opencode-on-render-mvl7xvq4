@@ -4,32 +4,23 @@ previews:
 
 services:
   - type: web
-    name: opencode
+    name: opencode-llm-proxy
     runtime: docker
-    region: oregon
-    plan: standard
+    region: singapore
+    plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    disk:
-      name: opencode-data
-      mountPath: /root/project-data
-      sizeGB: 1
     envVars:
+      - key: OPENCODE_LLM_PROXY_TOKEN
+        generateValue: true
+      - key: OPENCODE_LLM_PROXY_HOST
+        value: 0.0.0.0
       - key: OPENCODE_SERVER_PASSWORD
         generateValue: true
-      - key: OPENCODE_SERVER_USERNAME
-        value: opencode
-      - key: OPENCODE_SERVER_COMMAND
-        value: web
-      - key: ANTHROPIC_API_KEY
-        sync: false
+      # Set at least one provider key so the proxy has a model to serve.
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: RENDER_API_KEY
+      - key: ANTHROPIC_API_KEY
         sync: false
-      - key: REPO_URL
-        sync: false
-      - key: REPO_BRANCH
-        sync: false
-      - key: GITHUB_TOKEN
+      - key: OPENAI_API_KEY
         sync: false

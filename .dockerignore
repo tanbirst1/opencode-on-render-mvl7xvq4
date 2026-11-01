@@ -2,7 +2,7 @@
 .env
 .env.*
 node_modules
-npm-debug.log
-Dockerfile
+*.log
 README.md
-.DS_Store
+render.yaml
+.dockerignore
