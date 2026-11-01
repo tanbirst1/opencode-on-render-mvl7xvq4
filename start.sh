@@ -35,13 +35,15 @@ trap 'kill "$SERVER_PID" 2>/dev/null' TERM INT
 # binds $PORT before Render's port scan gives up and fails the deploy.
 node - "$SERVER_PORT" "$OPENCODE_LLM_PROXY_PORT" "$OPENCODE_LLM_PROXY_TOKEN" <<'NODE' >&2 || true
 const [serverPort, proxyPort, token] = process.argv.slice(2)
+const user = process.env.OPENCODE_SERVER_USERNAME || "opencode"
+const pass = process.env.OPENCODE_SERVER_PASSWORD || ""
+const auth = pass ? { authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}` } : {}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function hit(url, opts = {}, timeoutMs = 5000) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(url, { ...opts, signal: ctrl.signal })
-    return res.status
+    return (await fetch(url, { ...opts, signal: ctrl.signal })).status
   } catch {
     return 0
   } finally {
@@ -51,7 +53,7 @@ async function hit(url, opts = {}, timeoutMs = 5000) {
 ;(async () => {
   let health = 0
   for (let i = 0; i < 90; i++) {
-    health = await hit(`http://127.0.0.1:${serverPort}/global/health`)
+    health = await hit(`http://127.0.0.1:${serverPort}/global/health`, { headers: auth })
     if (health === 200) {
       console.log(`[warmup] server healthy after ${i}s`)
       break
@@ -59,12 +61,12 @@ async function hit(url, opts = {}, timeoutMs = 5000) {
     await sleep(1000)
   }
   if (health !== 200) {
-    console.log("[warmup] server never became healthy")
+    console.log(`[warmup] server never became healthy (last status ${health})`)
     return
   }
   const session = await hit(
     `http://127.0.0.1:${serverPort}/session`,
-    { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    { method: "POST", headers: { "content-type": "application/json", ...auth }, body: "{}" },
     30000,
   )
   console.log(`[warmup] session POST -> ${session}`)
