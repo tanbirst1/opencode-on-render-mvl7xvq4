@@ -15,8 +15,6 @@ services:
         generateValue: true
       - key: OPENCODE_LLM_PROXY_HOST
         value: 0.0.0.0
-      - key: OPENCODE_SERVER_PASSWORD
-        generateValue: true
       # Set at least one provider key so the proxy has a model to serve.
       - key: OPENROUTER_API_KEY
         sync: false

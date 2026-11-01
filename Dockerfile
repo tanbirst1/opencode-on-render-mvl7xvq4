@@ -9,7 +9,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/*
 
-# OpenCode CLI (headless `opencode serve`) + the proxy plugin it loads.
+# OpenCode CLI (headless `opencode serve`) and the proxy plugin package.
+# The proxy is loaded from its prebuilt bundle, not resolved by name: OpenCode
+# resolves npm-named plugins with Bun, which this image does not ship.
 RUN npm install -g opencode-ai@latest opencode-llm-proxy@latest \
     && npm cache clean --force
 
