@@ -25,7 +25,7 @@ fi
 export OPENCODE_LLM_PROXY_HOST="${OPENCODE_LLM_PROXY_HOST:-0.0.0.0}"
 export OPENCODE_LLM_PROXY_PORT="${PORT:-4010}"
 SERVER_PORT="${OPENCODE_SERVER_PORT:-4096}"
-log "proxy=${OPENCODE_LLM_PROXY_HOST}:${OPENCODE_LLM_PROXY_PORT} server=127.0.0.1:${SERVER_PORT} plugin=$(ls -1 "$PLUGIN_DIR")"
+log "proxy=${OPENCODE_LLM_PROXY_HOST}:${OPENCODE_LLM_PROXY_PORT} server=${SERVER_PORT}"
 
 opencode serve --hostname 127.0.0.1 --port "$SERVER_PORT" --print-logs --log-level DEBUG &
 SERVER_PID=$!
@@ -33,19 +33,53 @@ trap 'kill "$SERVER_PID" 2>/dev/null' TERM INT
 
 # OpenCode loads plugins lazily, on the first session. Create one so the proxy
 # binds $PORT before Render's port scan gives up and fails the deploy.
-for i in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:${SERVER_PORT}/global/health" >/dev/null 2>&1; then
-    log "server healthy after ${i}s"
-    break
-  fi
-  sleep 1
-done
-curl -s -o /dev/null -w '[start] session POST -> %{http_code}\n' \
-  -X POST "http://127.0.0.1:${SERVER_PORT}/session" \
-  -H 'Content-Type: application/json' -d '{}' >&2 || true
-sleep 3
-code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${OPENCODE_LLM_PROXY_TOKEN}" \
-  "http://127.0.0.1:${OPENCODE_LLM_PROXY_PORT}/v1/models" || true)
-log "proxy probe -> ${code}"
+node - "$SERVER_PORT" "$OPENCODE_LLM_PROXY_PORT" "$OPENCODE_LLM_PROXY_TOKEN" <<'NODE' >&2 || true
+const [serverPort, proxyPort, token] = process.argv.slice(2)
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function hit(url, opts = {}, timeoutMs = 5000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...opts, signal: ctrl.signal })
+    return res.status
+  } catch {
+    return 0
+  } finally {
+    clearTimeout(timer)
+  }
+}
+;(async () => {
+  let health = 0
+  for (let i = 0; i < 90; i++) {
+    health = await hit(`http://127.0.0.1:${serverPort}/global/health`)
+    if (health === 200) {
+      console.log(`[warmup] server healthy after ${i}s`)
+      break
+    }
+    await sleep(1000)
+  }
+  if (health !== 200) {
+    console.log("[warmup] server never became healthy")
+    return
+  }
+  const session = await hit(
+    `http://127.0.0.1:${serverPort}/session`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    30000,
+  )
+  console.log(`[warmup] session POST -> ${session}`)
+  for (let i = 0; i < 60; i++) {
+    const status = await hit(`http://127.0.0.1:${proxyPort}/v1/models`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    if (status !== 0) {
+      console.log(`[warmup] proxy reachable after ${i}s -> ${status}`)
+      return
+    }
+    await sleep(1000)
+  }
+  console.log("[warmup] proxy never came up")
+})()
+NODE
 
 wait "$SERVER_PID"
